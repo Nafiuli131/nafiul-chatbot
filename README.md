@@ -1,19 +1,22 @@
-# Groq Chat App
+# Nafiul Chatbot
 
-A full-stack chat application built with **Spring Boot** (backend) and **React** (frontend), powered by the **Groq free API** using LLaMA 3.3 70B.
+A full-stack AI chat application built with **Spring Boot** (backend) and **React** (frontend), powered by the **Groq free API** using LLaMA 3.3 70B.
 
 ---
 
 ## Features
 
+- User registration and login with JWT authentication
+- Per-user chat sessions — your history is private and scoped to your account
+- Persistent chat history stored in **MySQL** — survives server restarts
 - Multiple independent chat sessions (like ChatGPT sidebar)
+- Starts a fresh new chat on every login; previous sessions visible in the sidebar
 - Per-session conversation memory using `sessionId`
-- Persistent chat history stored in **MySQL**
 - Editable system prompt per session
 - Markdown rendering — code blocks, tables, lists
 - Animated loading indicator while waiting for response
 - Auto-renames sessions from the first message
-- Dark theme UI
+- Dark violet theme UI
 
 ---
 
@@ -21,48 +24,63 @@ A full-stack chat application built with **Spring Boot** (backend) and **React**
 
 ```
 code/
-├── backend/                              Spring Boot API
+├── backend/                                  Spring Boot API
 │   ├── pom.xml
 │   └── src/main/
 │       ├── java/com/example/groqchat/
-│       │   ├── GroqChatApplication.java  entry point
+│       │   ├── GroqChatApplication.java       entry point
 │       │   ├── config/
-│       │   │   └── GroqConfig.java       reads yml, builds WebClient
+│       │   │   └── GroqConfig.java            reads yml, builds WebClient
 │       │   ├── dto/
-│       │   │   ├── Message.java          {role, content}
-│       │   │   ├── ChatRequest.java      sent to Groq API
-│       │   │   ├── ChatResponse.java     received from Groq API
-│       │   │   └── UserMessage.java      received from frontend
+│       │   │   ├── Message.java               {role, content}
+│       │   │   ├── ChatRequest.java           sent to Groq API
+│       │   │   ├── ChatResponse.java          received from Groq API
+│       │   │   ├── UserMessage.java           received from frontend
+│       │   │   ├── RegisterRequest.java       register payload
+│       │   │   ├── LoginRequest.java          login payload
+│       │   │   └── AuthResponse.java          {token, username}
 │       │   ├── entity/
-│       │   │   ├── ChatSession.java      JPA entity — chat_sessions table
-│       │   │   └── ChatMessageEntity.java JPA entity — chat_messages table
+│       │   │   ├── User.java                  JPA entity — users table
+│       │   │   ├── ChatSession.java           JPA entity — chat_sessions table
+│       │   │   └── ChatMessageEntity.java     JPA entity — chat_messages table
 │       │   ├── repository/
+│       │   │   ├── UserRepository.java
 │       │   │   ├── ChatSessionRepository.java
 │       │   │   └── ChatMessageRepository.java
+│       │   ├── security/
+│       │   │   ├── JwtUtil.java               token generation & validation
+│       │   │   ├── JwtAuthFilter.java         reads Bearer token from headers
+│       │   │   └── SecurityConfig.java        Spring Security configuration
 │       │   ├── service/
-│       │   │   └── LlmService.java       session memory + Groq calls
+│       │   │   ├── AuthService.java           register / login logic
+│       │   │   ├── UserDetailsServiceImpl.java
+│       │   │   └── LlmService.java            session memory + Groq calls
 │       │   └── controller/
-│       │       └── ChatController.java   REST endpoints
+│       │       ├── AuthController.java        /api/auth/**
+│       │       └── ChatController.java        /api/chat/**
 │       └── resources/
-│           └── application.yml           config (API key, DB, model, etc.)
+│           └── application.yml               config (API key, DB, JWT, model)
 │
-└── frontend/                             React + Vite
+└── frontend/                                 React + Vite
     ├── package.json
-    ├── vite.config.js                    proxies /api → localhost:8080
+    ├── vite.config.js                        proxies /api → localhost:8080
     ├── index.html
     └── src/
         ├── main.jsx
-        ├── App.jsx                       session state management
+        ├── App.jsx                           auth state + session management
         ├── App.css
+        ├── api.js                            authFetch() helper (Bearer token)
         ├── index.css
         └── components/
-            ├── Sidebar.jsx               session list, new/delete
+            ├── AuthPage.jsx                  login / register form
+            ├── AuthPage.css
+            ├── Sidebar.jsx                   session list, new/delete, logout
             ├── Sidebar.css
-            ├── ChatWindow.jsx            messages + input box
+            ├── ChatWindow.jsx                messages + input box
             ├── ChatWindow.css
-            ├── MessageBubble.jsx         markdown rendering per message
+            ├── MessageBubble.jsx             markdown rendering per message
             ├── MessageBubble.css
-            ├── SystemPromptBar.jsx       editable system prompt
+            ├── SystemPromptBar.jsx           editable system prompt
             └── SystemPromptBar.css
 ```
 
@@ -96,61 +114,73 @@ Make sure MySQL is running, then set your credentials as environment variables:
 
 **Linux / macOS:**
 ```bash
-export MYSQL_DB=groqchat
+export MYSQL_DB=nafiulchat
 export MYSQL_USER=root
 export MYSQL_PASSWORD=your_mysql_password
 ```
 
 **Windows (Command Prompt):**
 ```cmd
-set MYSQL_DB=groqchat
+set MYSQL_DB=nafiulchat
 set MYSQL_USER=root
 set MYSQL_PASSWORD=your_mysql_password
 ```
 
 **Windows (PowerShell):**
 ```powershell
-$env:MYSQL_DB="groqchat"
+$env:MYSQL_DB="nafiulchat"
 $env:MYSQL_USER="root"
 $env:MYSQL_PASSWORD="your_mysql_password"
 ```
 
-The database is created automatically on first startup. No manual SQL needed.
+The database is created automatically on first startup (`createDatabaseIfNotExist=true`). No manual SQL needed.
 
 ---
 
 ## Step 3 — Run the Backend
 
-### Set the Groq API key
+### Set environment variables
 
 **Linux / macOS:**
 ```bash
 export GROQ_API_KEY=gsk_your_actual_key_here
+export MYSQL_DB=nafiulchat
+export MYSQL_USER=root
+export MYSQL_PASSWORD=your_mysql_password
+
+# Optional — override the default JWT secret in production
+export JWT_SECRET=YourSuperSecretKeyAtLeast32CharsLong!!
 ```
 
 **Windows (Command Prompt):**
 ```cmd
 set GROQ_API_KEY=gsk_your_actual_key_here
+set MYSQL_DB=nafiulchat
+set MYSQL_USER=root
+set MYSQL_PASSWORD=your_mysql_password
 ```
 
 **Windows (PowerShell):**
 ```powershell
 $env:GROQ_API_KEY="gsk_your_actual_key_here"
+$env:MYSQL_DB="nafiulchat"
+$env:MYSQL_USER="root"
+$env:MYSQL_PASSWORD="your_mysql_password"
 ```
 
 **IntelliJ IDEA:**
 ```
-Run → Edit Configurations → Environment Variables
-→ Add: GROQ_API_KEY=gsk_your_actual_key_here
-       MYSQL_DB=groqchat
-       MYSQL_USER=root
-       MYSQL_PASSWORD=your_mysql_password
+Run → Edit Configurations → Environment Variables → Add:
+  GROQ_API_KEY=gsk_your_actual_key_here
+  MYSQL_DB=nafiulchat
+  MYSQL_USER=root
+  MYSQL_PASSWORD=your_mysql_password
 ```
 
 ### Start the Spring Boot server
 
 ```bash
-cd backend
+cd code/backend
 mvn spring-boot:run
 ```
 
@@ -169,7 +199,7 @@ Backend is now running at **http://localhost:8080**
 Open a **new terminal** (keep the backend running):
 
 ```bash
-cd frontend
+cd code/frontend
 npm install
 npm run dev
 ```
@@ -177,10 +207,23 @@ npm run dev
 You should see:
 ```
 VITE v6.x.x  ready in 300ms
-→  Local:   http://localhost:5173/
+  Local:   http://localhost:5173/
 ```
 
 Open **http://localhost:5173** in your browser.
+
+---
+
+## Usage
+
+1. **Register** — create an account with a username, email, and password
+2. **Login** — sign in to access your personal chat history
+3. Every login opens a **fresh new chat** automatically
+4. Previous sessions are listed in the sidebar — click any to resume
+5. Use the **+** button in the sidebar to start a new chat at any time
+6. Click **⚙ System Prompt** to customize the AI's behaviour per session
+7. Click **✕** next to a session to delete it permanently
+8. Click **Logout** in the sidebar footer to sign out
 
 ---
 
@@ -190,6 +233,7 @@ Open **http://localhost:5173** in your browser.
 Browser (localhost:5173)
         │
         │  POST /api/chat/memory
+        │  Authorization: Bearer <jwt>
         │  { sessionId, message, systemPrompt }
         │
         ▼
@@ -200,6 +244,7 @@ Vite Dev Server (proxy)
         ▼
 Spring Boot (localhost:8080)
         │
+        │  validates JWT → resolves user
         │  loads conversation history from MySQL
         │  appends new message, calls Groq API
         │  saves assistant reply back to MySQL
@@ -215,11 +260,19 @@ Spring Boot → Vite → Browser ✓
 
 ### MySQL Schema
 
-Hibernate auto-creates these tables on startup:
+Hibernate auto-creates all tables on startup:
 
 ```
+users
+  id           BIGINT        PK (auto-increment)
+  username     VARCHAR(255)  UNIQUE
+  email        VARCHAR(255)  UNIQUE
+  password     VARCHAR(255)  BCrypt hashed
+  created_at   DATETIME
+
 chat_sessions
-  id           VARCHAR(255)  PK
+  id           VARCHAR(255)  PK (UUID)
+  user_id      BIGINT        FK → users.id
   system_prompt TEXT
   created_at   DATETIME
 
@@ -231,46 +284,59 @@ chat_messages
   created_at   DATETIME
 ```
 
-### Multi-user memory
+### Session isolation
 
-Every chat session in the sidebar has a unique `sessionId` (UUID). The backend loads the full conversation history from MySQL per session and sends it to Groq on every request:
-
-```
-"session-uuid-a" → [system, user_1, assistant_1, user_2, ...]
-"session-uuid-b" → [system, user_1, assistant_1, ...]
-```
-
-Sessions are completely isolated — users never see each other's messages. History survives server restarts.
+Every chat session belongs to exactly one user. Users cannot see or access each other's sessions. Each session has a unique UUID and carries the full conversation history sent to Groq on every request.
 
 ---
 
 ## API Endpoints
 
+### Auth (public)
+
+| Method | Endpoint | Body | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/register` | `{username, email, password}` | Create a new account |
+| `POST` | `/api/auth/login` | `{username, password}` | Get a JWT token |
+
+### Chat (requires `Authorization: Bearer <token>`)
+
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/chat` | One-shot chat, no memory |
-| `POST` | `/api/chat/memory` | Chat with session memory (persisted) |
-| `DELETE` | `/api/chat/session/{id}` | Clear one session |
-| `GET` | `/api/chat/sessions` | List active sessions |
+| `POST` | `/api/chat/memory` | Send a message with session memory |
+| `GET` | `/api/chat/sessions` | List all sessions for the logged-in user |
+| `GET` | `/api/chat/session/{id}/messages` | Load message history for a session |
+| `DELETE` | `/api/chat/session/{id}` | Delete a session |
 | `GET` | `/api/health` | Health check |
 
-### Example request
+### Example — Login
+
+```bash
+curl -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "nafiul", "password": "secret"}'
+```
+
+```json
+{ "token": "eyJhbGci...", "username": "nafiul" }
+```
+
+### Example — Chat
 
 ```bash
 curl -X POST http://localhost:8080/api/chat/memory \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGci..." \
   -d '{
-    "sessionId": "my-session",
+    "sessionId": "550e8400-e29b-41d4-a716-446655440000",
     "message": "What is Spring Boot?",
     "systemPrompt": "You are a Java expert. Be concise."
   }'
 ```
 
-### Example response
-
 ```json
 {
-  "sessionId": "my-session",
+  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
   "response": "Spring Boot is an opinionated framework...",
   "historySize": "3"
 }
@@ -284,23 +350,27 @@ All config is in `backend/src/main/resources/application.yml`:
 
 ```yaml
 groq:
-  api-key: ${GROQ_API_KEY}              # from environment variable
+  api-key: ${GROQ_API_KEY}               # required — set as env variable
   base-url: https://api.groq.com/openai/v1
-  model: llama-3.3-70b-versatile        # change model here
-  temperature: 0.7                       # 0 = precise, 1+ = creative
-  max-tokens: 1024                       # max response length
+  model: llama-3.3-70b-versatile         # change model here
+  temperature: 0.7                        # 0 = precise, 1+ = creative
+  max-tokens: 1024                        # max response length
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/${MYSQL_DB:groqchat}?createDatabaseIfNotExist=true
-    username: ${MYSQL_USER:root}         # override via env variable
-    password: ${MYSQL_PASSWORD:root}     # override via env variable
+    url: jdbc:mysql://localhost:3306/${MYSQL_DB:nafiulchat}?createDatabaseIfNotExist=true
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
   jpa:
     hibernate:
-      ddl-auto: update                   # auto-creates/updates tables
+      ddl-auto: update                    # auto-creates/updates tables
+
+jwt:
+  secret: ${JWT_SECRET:fallback-secret}  # override in production!
+  expiration: 86400000                   # 24 hours in ms
 ```
 
-### Available Groq models (free)
+### Available Groq models (free tier)
 
 | Model | Best For |
 |---|---|
@@ -315,14 +385,15 @@ spring:
 
 | Problem | Fix |
 |---|---|
-| `401 Unauthorized` | API key is wrong or not set. Run `echo $GROQ_API_KEY` to verify. |
-| `429 Too Many Requests` | Hit Groq free tier rate limit. Wait 1 minute. |
-| `Connection refused` on port 8080 | Backend is not running. Start it with `mvn spring-boot:run`. |
-| `Access denied for user` (MySQL) | Check `MYSQL_USER` and `MYSQL_PASSWORD` env variables. |
-| `Unknown database 'groqchat'` | Add `?createDatabaseIfNotExist=true` to the JDBC URL (already set by default). |
-| Lombok errors / missing getters | In IntelliJ: Settings → Build → Compiler → Annotation Processors → Enable ✓ |
-| CORS error in browser | Make sure frontend runs on port 5173 (Vite default). |
-| `GROQ_API_KEY` not found | Set the env variable before running `mvn spring-boot:run`. |
+| `401 Unauthorized` on chat | JWT token missing or expired. Log out and log in again. |
+| `401 Unauthorized` on Groq | `GROQ_API_KEY` is wrong or not set. Run `echo $GROQ_API_KEY`. |
+| `429 Too Many Requests` | Hit Groq free tier rate limit. Wait ~1 minute. |
+| `Connection refused` on port 8080 | Backend is not running. Run `mvn spring-boot:run`. |
+| `Access denied for user` (MySQL) | Wrong `MYSQL_USER` or `MYSQL_PASSWORD`. Check env variables. |
+| `Unknown database` (MySQL) | Ensure MySQL server is running — the DB is created automatically. |
+| Blank screen after login | Hard-refresh the browser (Ctrl+Shift+R / Cmd+Shift+R). |
+| Lombok errors in IntelliJ | Settings → Build → Compiler → Annotation Processors → Enable ✓ |
+| CORS error in browser | Frontend must run on port 5173 (Vite default). |
 
 ---
 
@@ -335,11 +406,12 @@ spring:
 | HTTP client | Spring WebFlux WebClient |
 | ORM | Spring Data JPA + Hibernate |
 | Database | MySQL 8 |
+| Security | Spring Security + JWT (jjwt 0.12.6) |
+| Password hashing | BCrypt |
 | Build tool | Maven |
 | Language (frontend) | JavaScript (ES2022) |
 | UI framework | React 18 |
-| Build tool | Vite |
+| Build tool | Vite 6 |
 | Markdown rendering | react-markdown |
 | LLM provider | Groq (free) |
 | Model | LLaMA 3.3 70B |
-# nafiul-chatbot

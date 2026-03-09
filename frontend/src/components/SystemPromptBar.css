@@ -1,0 +1,40 @@
+.system-prompt-bar {
+  padding: 12px 20px;
+  background: #111;
+  border-bottom: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sp-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #93c5fd;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sp-textarea {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #d0d0d0;
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+  transition: border-color 0.2s;
+}
+
+.sp-textarea:focus {
+  border-color: #2563eb;
+}
+
+.sp-hint {
+  font-size: 11px;
+  color: #444;
+}
