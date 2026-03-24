@@ -1,6 +1,6 @@
 # Nafiul Chatbot
 
-A full-stack AI chat application built with **Spring Boot** (backend) and **React** (frontend), powered by the **Groq free API** using LLaMA 3.3 70B.
+A full-stack AI chat application built with **Spring Boot** (backend) and **React** (frontend), powered by the **Groq free API** using LLaMA 3.3 70B. Fully Dockerized for easy deployment.
 
 ---
 
@@ -17,76 +17,71 @@ A full-stack AI chat application built with **Spring Boot** (backend) and **Reac
 - Animated loading indicator while waiting for response
 - Auto-renames sessions from the first message
 - Dark violet theme UI
+- **Fully Dockerized** — one command to run everything
 
 ---
 
-## Project Structure
+## Quick Start (Docker)
 
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/)
+- [Groq API key](https://console.groq.com) (free)
+
+### 1. Clone and configure
+
+```bash
+cd code
+cp .env.example .env
 ```
-code/
-├── backend/                                  Spring Boot API
-│   ├── pom.xml
-│   └── src/main/
-│       ├── java/com/example/groqchat/
-│       │   ├── GroqChatApplication.java       entry point
-│       │   ├── config/
-│       │   │   └── GroqConfig.java            reads yml, builds WebClient
-│       │   ├── dto/
-│       │   │   ├── Message.java               {role, content}
-│       │   │   ├── ChatRequest.java           sent to Groq API
-│       │   │   ├── ChatResponse.java          received from Groq API
-│       │   │   ├── UserMessage.java           received from frontend
-│       │   │   ├── RegisterRequest.java       register payload
-│       │   │   ├── LoginRequest.java          login payload
-│       │   │   └── AuthResponse.java          {token, username}
-│       │   ├── entity/
-│       │   │   ├── User.java                  JPA entity — users table
-│       │   │   ├── ChatSession.java           JPA entity — chat_sessions table
-│       │   │   └── ChatMessageEntity.java     JPA entity — chat_messages table
-│       │   ├── repository/
-│       │   │   ├── UserRepository.java
-│       │   │   ├── ChatSessionRepository.java
-│       │   │   └── ChatMessageRepository.java
-│       │   ├── security/
-│       │   │   ├── JwtUtil.java               token generation & validation
-│       │   │   ├── JwtAuthFilter.java         reads Bearer token from headers
-│       │   │   └── SecurityConfig.java        Spring Security configuration
-│       │   ├── service/
-│       │   │   ├── AuthService.java           register / login logic
-│       │   │   ├── UserDetailsServiceImpl.java
-│       │   │   └── LlmService.java            session memory + Groq calls
-│       │   └── controller/
-│       │       ├── AuthController.java        /api/auth/**
-│       │       └── ChatController.java        /api/chat/**
-│       └── resources/
-│           └── application.yml               config (API key, DB, JWT, model)
-│
-└── frontend/                                 React + Vite
-    ├── package.json
-    ├── vite.config.js                        proxies /api → localhost:8080
-    ├── index.html
-    └── src/
-        ├── main.jsx
-        ├── App.jsx                           auth state + session management
-        ├── App.css
-        ├── api.js                            authFetch() helper (Bearer token)
-        ├── index.css
-        └── components/
-            ├── AuthPage.jsx                  login / register form
-            ├── AuthPage.css
-            ├── Sidebar.jsx                   session list, new/delete, logout
-            ├── Sidebar.css
-            ├── ChatWindow.jsx                messages + input box
-            ├── ChatWindow.css
-            ├── MessageBubble.jsx             markdown rendering per message
-            ├── MessageBubble.css
-            ├── SystemPromptBar.jsx           editable system prompt
-            └── SystemPromptBar.css
+
+Edit `.env` and set your Groq API key:
+```
+GROQ_API_KEY=gsk_your_actual_key_here
+```
+
+### 2. Start everything
+
+```bash
+docker compose up -d
+```
+
+This starts 4 services:
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| Frontend | http://localhost | React app served by Nginx |
+| Backend API | http://localhost:8080 | Spring Boot REST API |
+| phpMyAdmin | http://localhost:8081 | MySQL web UI |
+| MySQL | localhost:3307 | Database (external access) |
+
+### 3. Use the app
+
+Open **http://localhost** in your browser. Register an account and start chatting.
+
+### Stop / restart
+
+```bash
+docker compose down        # stop all services
+docker compose up -d       # start again (data persists in volume)
+docker compose down -v     # stop and delete all data
+```
+
+### Rebuild after code changes
+
+```bash
+docker compose up -d --build           # rebuild all
+docker compose up -d --build backend   # rebuild backend only
+docker compose up -d --build frontend  # rebuild frontend only
 ```
 
 ---
 
-## Prerequisites
+## Local Development (without Docker)
+
+For faster development, run only MySQL in Docker and run backend/frontend locally:
+
+### Prerequisites
 
 | Tool | Version | Install |
 |---|---|---|
@@ -94,109 +89,33 @@ code/
 | Maven | 3.9+ | `sudo apt install maven` |
 | Node.js | 18+ | https://nodejs.org |
 | npm | 9+ | comes with Node.js |
-| MySQL | 8.0+ | https://dev.mysql.com/downloads |
+| Docker | latest | https://docs.docker.com/get-docker/ |
 | Groq API key | free | https://console.groq.com |
 
----
+### 1. Start MySQL + phpMyAdmin in Docker
 
-## Step 1 — Get a Free Groq API Key
-
-1. Go to **https://console.groq.com**
-2. Sign up with Google or GitHub (no credit card needed)
-3. Go to **API Keys** → **Create API Key**
-4. Copy the key — it looks like: `gsk_xxxxxxxxxxxxxxxxxxxx`
-
----
-
-## Step 2 — Set Up MySQL
-
-Make sure MySQL is running, then set your credentials as environment variables:
-
-**Linux / macOS:**
 ```bash
-export MYSQL_DB=nafiulchat
-export MYSQL_USER=root
-export MYSQL_PASSWORD=your_mysql_password
+cd code
+docker compose up -d mysql phpmyadmin
 ```
 
-**Windows (Command Prompt):**
-```cmd
-set MYSQL_DB=nafiulchat
-set MYSQL_USER=root
-set MYSQL_PASSWORD=your_mysql_password
-```
-
-**Windows (PowerShell):**
-```powershell
-$env:MYSQL_DB="nafiulchat"
-$env:MYSQL_USER="root"
-$env:MYSQL_PASSWORD="your_mysql_password"
-```
-
-The database is created automatically on first startup (`createDatabaseIfNotExist=true`). No manual SQL needed.
-
----
-
-## Step 3 — Run the Backend
-
-### Set environment variables
-
-**Linux / macOS:**
-```bash
-export GROQ_API_KEY=gsk_your_actual_key_here
-export MYSQL_DB=nafiulchat
-export MYSQL_USER=root
-export MYSQL_PASSWORD=your_mysql_password
-
-# Optional — override the default JWT secret in production
-export JWT_SECRET=YourSuperSecretKeyAtLeast32CharsLong!!
-```
-
-**Windows (Command Prompt):**
-```cmd
-set GROQ_API_KEY=gsk_your_actual_key_here
-set MYSQL_DB=nafiulchat
-set MYSQL_USER=root
-set MYSQL_PASSWORD=your_mysql_password
-```
-
-**Windows (PowerShell):**
-```powershell
-$env:GROQ_API_KEY="gsk_your_actual_key_here"
-$env:MYSQL_DB="nafiulchat"
-$env:MYSQL_USER="root"
-$env:MYSQL_PASSWORD="your_mysql_password"
-```
-
-**IntelliJ IDEA:**
-```
-Run → Edit Configurations → Environment Variables → Add:
-  GROQ_API_KEY=gsk_your_actual_key_here
-  MYSQL_DB=nafiulchat
-  MYSQL_USER=root
-  MYSQL_PASSWORD=your_mysql_password
-```
-
-### Start the Spring Boot server
+### 2. Run the backend
 
 ```bash
 cd code/backend
+export GROQ_API_KEY=gsk_your_actual_key_here
+export MYSQL_HOST=localhost
+export MYSQL_PORT=3307
+export MYSQL_USER=groquser
+export MYSQL_PASSWORD=groqpass
 mvn spring-boot:run
 ```
 
-You should see:
-```
-Started GroqChatApplication in 2.4 seconds
-Tomcat started on port(s): 8080
-```
+Backend runs at **http://localhost:8080**
 
-Backend is now running at **http://localhost:8080**
+### 3. Run the frontend
 
----
-
-## Step 4 — Run the Frontend
-
-Open a **new terminal** (keep the backend running):
+Open a new terminal:
 
 ```bash
 cd code/frontend
@@ -204,58 +123,115 @@ npm install
 npm run dev
 ```
 
-You should see:
-```
-VITE v6.x.x  ready in 300ms
-  Local:   http://localhost:5173/
-```
-
-Open **http://localhost:5173** in your browser.
+Frontend runs at **http://localhost:5173** (Vite proxies `/api` to backend automatically)
 
 ---
 
-## Usage
+## Project Structure
 
-1. **Register** — create an account with a username, email, and password
-2. **Login** — sign in to access your personal chat history
-3. Every login opens a **fresh new chat** automatically
-4. Previous sessions are listed in the sidebar — click any to resume
-5. Use the **+** button in the sidebar to start a new chat at any time
-6. Click **⚙ System Prompt** to customize the AI's behaviour per session
-7. Click **✕** next to a session to delete it permanently
-8. Click **Logout** in the sidebar footer to sign out
+```
+code/
+├── docker-compose.yml                           orchestrates all services
+├── .env.example                                 environment variable template
+├── backend/                                     Spring Boot API
+│   ├── Dockerfile                               multi-stage build (Maven → JRE 21)
+│   ├── pom.xml
+│   └── src/main/
+│       ├── java/com/example/groqchat/
+│       │   ├── GroqChatApplication.java         entry point
+│       │   ├── config/
+│       │   │   └── GroqConfig.java              reads yml, builds WebClient
+│       │   ├── dto/
+│       │   │   ├── Message.java                 {role, content}
+│       │   │   ├── ChatRequest.java             sent to Groq API
+│       │   │   ├── ChatResponse.java            received from Groq API
+│       │   │   ├── UserMessage.java             received from frontend
+│       │   │   ├── RegisterRequest.java         register payload
+│       │   │   ├── LoginRequest.java            login payload
+│       │   │   └── AuthResponse.java            {token, username}
+│       │   ├── entity/
+│       │   │   ├── User.java                    JPA entity — users table
+│       │   │   ├── ChatSession.java             JPA entity — chat_sessions table
+│       │   │   └── ChatMessageEntity.java       JPA entity — chat_messages table
+│       │   ├── repository/
+│       │   │   ├── UserRepository.java
+│       │   │   ├── ChatSessionRepository.java
+│       │   │   └── ChatMessageRepository.java
+│       │   ├── security/
+│       │   │   ├── JwtUtil.java                 token generation & validation
+│       │   │   ├── JwtAuthFilter.java           reads Bearer token from headers
+│       │   │   └── SecurityConfig.java          Spring Security configuration
+│       │   ├── service/
+│       │   │   ├── AuthService.java             register / login logic
+│       │   │   ├── UserDetailsServiceImpl.java
+│       │   │   └── LlmService.java              session memory + Groq calls
+│       │   └── controller/
+│       │       ├── AuthController.java          /api/auth/**
+│       │       └── ChatController.java          /api/chat/**
+│       └── resources/
+│           └── application.yml                  config (API key, DB, JWT, model)
+│
+└── frontend/                                    React + Vite
+    ├── Dockerfile                               multi-stage build (Node → Nginx)
+    ├── nginx.conf                               proxies /api to backend
+    ├── package.json
+    ├── vite.config.js                           dev proxy /api → localhost:8080
+    ├── index.html
+    └── src/
+        ├── main.jsx
+        ├── App.jsx                              auth state + session management
+        ├── App.css
+        ├── api.js                               authFetch() helper (Bearer token)
+        ├── index.css
+        └── components/
+            ├── AuthPage.jsx/css                 login / register form
+            ├── Sidebar.jsx/css                  session list, new/delete, logout
+            ├── ChatWindow.jsx/css               messages + input box
+            ├── MessageBubble.jsx/css             markdown rendering per message
+            └── SystemPromptBar.jsx/css           editable system prompt
+```
+
+---
+
+## Architecture
+
+### Docker (production)
+
+```
+Browser → :80 (Nginx / Frontend)
+              ├── static files (React build)
+              └── /api/* → :8080 (Spring Boot Backend)
+                                  └── :3306 (MySQL container)
+
+phpMyAdmin → :8081 → MySQL container
+```
+
+### Local development
+
+```
+Browser → :5173 (Vite Dev Server)
+              ├── React hot-reload
+              └── /api/* (proxy) → :8080 (Spring Boot locally)
+                                       └── :3307 (MySQL in Docker)
+```
 
 ---
 
 ## How It Works
 
 ```
-Browser (localhost:5173)
-        │
-        │  POST /api/chat/memory
-        │  Authorization: Bearer <jwt>
-        │  { sessionId, message, systemPrompt }
-        │
-        ▼
-Vite Dev Server (proxy)
-        │
-        │  forwards to localhost:8080
-        │
-        ▼
-Spring Boot (localhost:8080)
-        │
-        │  validates JWT → resolves user
-        │  loads conversation history from MySQL
-        │  appends new message, calls Groq API
-        │  saves assistant reply back to MySQL
-        │
-        ▼
-Groq API (free)
-        │
-        │  returns LLaMA 3.3 70B response
-        │
-        ▼
-Spring Boot → Vite → Browser ✓
+Browser
+    │  POST /api/chat/memory
+    │  Authorization: Bearer <jwt>
+    │  { sessionId, message, systemPrompt }
+    ▼
+Spring Boot (port 8080)
+    │  validates JWT → resolves user
+    │  loads conversation history from MySQL
+    │  appends new message, calls Groq API
+    │  saves assistant reply back to MySQL
+    ▼
+Groq API (free) → LLaMA 3.3 70B response → Browser ✓
 ```
 
 ### MySQL Schema
@@ -284,9 +260,18 @@ chat_messages
   created_at   DATETIME
 ```
 
-### Session isolation
+---
 
-Every chat session belongs to exactly one user. Users cannot see or access each other's sessions. Each session has a unique UUID and carries the full conversation history sent to Groq on every request.
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GROQ_API_KEY` | Yes | — | Groq API key from https://console.groq.com |
+| `MYSQL_ROOT_PASSWORD` | No | `root` | MySQL root password |
+| `MYSQL_DB` | No | `groqchat` | MySQL database name |
+| `MYSQL_USER` | No | `groquser` | MySQL application user |
+| `MYSQL_PASSWORD` | No | `groqpass` | MySQL application password |
+| `JWT_SECRET` | No | (built-in default) | JWT signing key (min 32 chars) |
 
 ---
 
@@ -307,7 +292,7 @@ Every chat session belongs to exactly one user. Users cannot see or access each 
 | `GET` | `/api/chat/sessions` | List all sessions for the logged-in user |
 | `GET` | `/api/chat/session/{id}/messages` | Load message history for a session |
 | `DELETE` | `/api/chat/session/{id}` | Delete a session |
-| `GET` | `/api/health` | Health check |
+| `GET` | `/api/health` | Health check (public) |
 
 ### Example — Login
 
@@ -358,7 +343,7 @@ groq:
 
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/${MYSQL_DB:nafiulchat}?createDatabaseIfNotExist=true
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:groqchat}
     username: ${MYSQL_USER:root}
     password: ${MYSQL_PASSWORD:root}
   jpa:
@@ -381,19 +366,33 @@ jwt:
 
 ---
 
+## phpMyAdmin
+
+Access at **http://localhost:8081** after running `docker compose up -d`.
+
+| Field | Value |
+|-------|-------|
+| Username | `root` |
+| Password | `root` |
+
+Or use `groquser` / `groqpass` (limited to `groqchat` database only).
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
 | `401 Unauthorized` on chat | JWT token missing or expired. Log out and log in again. |
-| `401 Unauthorized` on Groq | `GROQ_API_KEY` is wrong or not set. Run `echo $GROQ_API_KEY`. |
+| `401 Unauthorized` on Groq | `GROQ_API_KEY` is wrong or not set. Check `.env` file. |
 | `429 Too Many Requests` | Hit Groq free tier rate limit. Wait ~1 minute. |
-| `Connection refused` on port 8080 | Backend is not running. Run `mvn spring-boot:run`. |
-| `Access denied for user` (MySQL) | Wrong `MYSQL_USER` or `MYSQL_PASSWORD`. Check env variables. |
-| `Unknown database` (MySQL) | Ensure MySQL server is running — the DB is created automatically. |
+| `Connection refused` on port 8080 | Backend is not running. Check `docker compose logs backend`. |
+| `Access denied for user` (MySQL) | Wrong credentials. Check `.env` matches `docker-compose.yml`. |
+| Container keeps restarting | Check logs: `docker compose logs <service-name>`. |
+| Frontend can't reach backend | Nginx proxies `/api` to `backend:8080`. Ensure backend is healthy. |
 | Blank screen after login | Hard-refresh the browser (Ctrl+Shift+R / Cmd+Shift+R). |
-| Lombok errors in IntelliJ | Settings → Build → Compiler → Annotation Processors → Enable ✓ |
-| CORS error in browser | Frontend must run on port 5173 (Vite default). |
+| Lombok errors in IntelliJ | Settings → Build → Compiler → Annotation Processors → Enable |
+| MySQL data lost | Don't use `docker compose down -v` — the `-v` flag deletes volumes. |
 
 ---
 
@@ -415,3 +414,6 @@ jwt:
 | Markdown rendering | react-markdown |
 | LLM provider | Groq (free) |
 | Model | LLaMA 3.3 70B |
+| Containerization | Docker + Docker Compose |
+| Web server | Nginx (frontend) |
+| DB admin | phpMyAdmin |

@@ -1,0 +1,66 @@
+services:
+  # ── MySQL Database ─────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: groqchat-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DB:-groqchat}
+      MYSQL_USER: ${MYSQL_USER:-groquser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-groqpass}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Spring Boot Backend ────────────────────────────────
+  backend:
+    build: ./backend
+    container_name: groqchat-backend
+    ports:
+      - "8080:8080"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DB: ${MYSQL_DB:-groqchat}
+      MYSQL_USER: ${MYSQL_USER:-groquser}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-groqpass}
+      JWT_SECRET: ${JWT_SECRET:-ThisIsASecretKeyForGroqChatAppMustBe32CharsMin!!}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── phpMyAdmin (MySQL Web UI) ─────────────────────────
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: groqchat-phpmyadmin
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── React Frontend (Nginx) ────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: groqchat-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
