@@ -31,6 +31,7 @@ public class LlmService {
     private final GroqConfig groqConfig;
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
+    private final RagService ragService;
 
     // ── Simple one-shot chat (no session) ─────────────────────
     public String chat(String userMessage, String systemPrompt) {
@@ -41,24 +42,45 @@ public class LlmService {
         return callGroq(messages);
     }
 
-    // ── Multi-user chat with memory ────────────────────────────
+    // ── Multi-user chat with memory (auto RAG-augmented) ────────
     @Transactional
     public String chatWithMemory(String sessionId, String userMessage, String systemPrompt, Long userId) {
+        // Enrich system prompt with RAG context if relevant documents exist
+        String ragContext = ragService.retrieveContext(userMessage);
+        String basePrompt = systemPrompt != null ? systemPrompt : "You are a helpful assistant.";
+
+        String enrichedPrompt;
+        if (ragContext.isEmpty()) {
+            enrichedPrompt = basePrompt;
+        } else {
+            enrichedPrompt = basePrompt + """
+
+                    Use the following document context to help answer the user's question.
+                    If the context does not contain the answer, say so and answer to the best of your ability.
+
+                    Context:
+                    """ + ragContext;
+        }
+
         if (!sessionRepository.existsById(sessionId)) {
-            String prompt = systemPrompt != null ? systemPrompt : "You are a helpful assistant.";
-            sessionRepository.save(new ChatSession(sessionId, prompt, userId));
-            messageRepository.save(new ChatMessageEntity(sessionId, "system", prompt));
+            sessionRepository.save(new ChatSession(sessionId, basePrompt, userId));
+            messageRepository.save(new ChatMessageEntity(sessionId, "system", basePrompt));
             log.info("New session created: {} for userId: {}", sessionId, userId);
         }
 
         messageRepository.save(new ChatMessageEntity(sessionId, "user", userMessage));
 
+        // Build history but replace the system prompt with the RAG-enriched one
         List<Message> history = loadHistory(sessionId);
+        if (!history.isEmpty() && "system".equals(history.get(0).getRole())) {
+            history.set(0, new Message("system", enrichedPrompt));
+        }
+
         String response = callGroq(history);
 
         messageRepository.save(new ChatMessageEntity(sessionId, "assistant", response));
 
-        log.info("Session [{}] — {} messages", sessionId, history.size() + 1);
+        log.info("Session [{}] — {} messages, RAG context: {}", sessionId, history.size() + 1, !ragContext.isEmpty());
         return response;
     }
 

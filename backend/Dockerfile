@@ -7,7 +7,7 @@ COPY src ./src
 RUN mvn clean package -DskipTests -B
 
 # ── Stage 2: Run ─────────────────────────────────────────
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /app/target/groq-chat-1.0.0.jar app.jar
 EXPOSE 8080

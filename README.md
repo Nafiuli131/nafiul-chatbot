@@ -8,6 +8,9 @@ A full-stack AI chat application built with **Spring Boot** (backend) and **Reac
 
 - User registration and login with JWT authentication
 - Per-user chat sessions — your history is private and scoped to your account
+- **RAG (Retrieval-Augmented Generation)** — drop PDFs in `backend/src/main/resources/docs/` and the chatbot answers questions using your documents
+- Automatic PDF ingestion on startup with local ONNX embeddings (no extra API key needed)
+- Vector store persisted to disk — survives restarts without re-processing
 - Persistent chat history stored in **MySQL** — survives server restarts
 - Multiple independent chat sessions (like ChatGPT sidebar)
 - Starts a fresh new chat on every login; previous sessions visible in the sidebar
@@ -140,7 +143,8 @@ code/
 │       ├── java/com/example/groqchat/
 │       │   ├── GroqChatApplication.java         entry point
 │       │   ├── config/
-│       │   │   └── GroqConfig.java              reads yml, builds WebClient
+│       │   │   ├── GroqConfig.java              reads yml, builds WebClient
+│       │   │   └── RagConfig.java               RAG settings, SimpleVectorStore bean
 │       │   ├── dto/
 │       │   │   ├── Message.java                 {role, content}
 │       │   │   ├── ChatRequest.java             sent to Groq API
@@ -164,12 +168,15 @@ code/
 │       │   ├── service/
 │       │   │   ├── AuthService.java             register / login logic
 │       │   │   ├── UserDetailsServiceImpl.java
-│       │   │   └── LlmService.java              session memory + Groq calls
+│       │   │   ├── LlmService.java              session memory + RAG + Groq calls
+│       │   │   ├── RagService.java              vector similarity search
+│       │   │   └── DocumentIngestionService.java PDF loading + chunking on startup
 │       │   └── controller/
 │       │       ├── AuthController.java          /api/auth/**
 │       │       └── ChatController.java          /api/chat/**
 │       └── resources/
-│           └── application.yml                  config (API key, DB, JWT, model)
+│           ├── application.yml                  config (API key, DB, JWT, model, RAG)
+│           └── docs/                            drop PDF files here for RAG
 │
 └── frontend/                                    React + Vite
     ├── Dockerfile                               multi-stage build (Node → Nginx)
@@ -227,12 +234,36 @@ Browser
     ▼
 Spring Boot (port 8080)
     │  validates JWT → resolves user
+    │  searches vector store for relevant document chunks (RAG)
+    │  enriches system prompt with document context (if found)
     │  loads conversation history from MySQL
     │  appends new message, calls Groq API
     │  saves assistant reply back to MySQL
     ▼
 Groq API (free) → LLaMA 3.3 70B response → Browser ✓
 ```
+
+### RAG Pipeline
+
+```
+PDF files (backend/src/main/resources/docs/)
+    │  [Startup: ApplicationReadyEvent]
+    ▼
+PagePdfDocumentReader → TokenTextSplitter → ONNX EmbeddingModel (local)
+    │                                              │
+    ▼                                              ▼
+List<Document> (chunks)  →  SimpleVectorStore (in-memory + file-persisted)
+                                    │
+                                    ▼  [Query time]
+                            similaritySearch(query)
+                                    │
+                                    ▼
+                    Context injected into system prompt → Groq API → Response
+```
+
+- **First startup**: Reads PDFs → chunks text → generates embeddings → saves to `./data/vector-store.json`
+- **Subsequent startups**: Loads vectors from file — skips PDF processing
+- **To re-ingest**: Delete `./data/vector-store.json` (or the `vector_data` Docker volume) and restart
 
 ### MySQL Schema
 
@@ -353,6 +384,12 @@ spring:
 jwt:
   secret: ${JWT_SECRET:fallback-secret}  # override in production!
   expiration: 86400000                   # 24 hours in ms
+
+rag:
+  docs-path: classpath:docs/             # PDF files directory
+  vector-store-path: ./data/vector-store.json  # persisted vector store
+  chunk-size: 800                        # tokens per chunk
+  chunk-overlap: 200                     # overlap between chunks
 ```
 
 ### Available Groq models (free tier)
@@ -389,6 +426,9 @@ Or use `groquser` / `groqpass` (limited to `groqchat` database only).
 | `Connection refused` on port 8080 | Backend is not running. Check `docker compose logs backend`. |
 | `Access denied for user` (MySQL) | Wrong credentials. Check `.env` matches `docker-compose.yml`. |
 | Container keeps restarting | Check logs: `docker compose logs <service-name>`. |
+| RAG not finding answers | Delete `./data/vector-store.json` and restart to re-ingest PDFs. |
+| No PDF files found warning | Place at least one `.pdf` file in `backend/src/main/resources/docs/`. |
+| First startup is slow | ONNX model (~80MB) downloads on first run. Cached after that. |
 | Frontend can't reach backend | Nginx proxies `/api` to `backend:8080`. Ensure backend is healthy. |
 | Blank screen after login | Hard-refresh the browser (Ctrl+Shift+R / Cmd+Shift+R). |
 | Lombok errors in IntelliJ | Settings → Build → Compiler → Annotation Processors → Enable |
@@ -402,6 +442,10 @@ Or use `groquser` / `groqpass` (limited to `groqchat` database only).
 |---|---|
 | Language (backend) | Java 21 |
 | Framework | Spring Boot 3.4 |
+| AI framework | Spring AI 1.0 |
+| Embeddings | ONNX all-MiniLM-L6-v2 (local) |
+| Vector store | SimpleVectorStore (file-persisted) |
+| PDF parsing | Spring AI PDF Document Reader |
 | HTTP client | Spring WebFlux WebClient |
 | ORM | Spring Data JPA + Hibernate |
 | Database | MySQL 8 |

@@ -3,17 +3,18 @@
   gap: 12px;
   padding: 6px 0;
   align-items: flex-start;
-  max-width: 820px;
+  max-width: 760px;
   width: 100%;
 }
 
 .user-row {
   flex-direction: row-reverse;
-  margin-left: auto;
+  align-self: flex-end;
 }
 
 .assistant-row {
   flex-direction: row;
+  align-self: flex-start;
 }
 
 .avatar {
@@ -28,11 +29,13 @@
 }
 
 .bubble {
-  max-width: calc(100% - 48px);
+  max-width: 85%;
   padding: 10px 14px;
   border-radius: 12px;
   line-height: 1.6;
   font-size: 14px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .user-bubble {

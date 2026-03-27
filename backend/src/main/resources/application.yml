@@ -25,3 +25,10 @@ spring:
 jwt:
   secret: ${JWT_SECRET:ThisIsASecretKeyForGroqChatAppMustBe32CharsMin!!}
   expiration: 86400000  # 24 hours in ms
+
+# RAG Configuration
+rag:
+  docs-path: classpath:docs/
+  vector-store-path: ./data/vector-store.json
+  chunk-size: 800
+  chunk-overlap: 200

@@ -32,6 +32,8 @@ services:
       MYSQL_USER: ${MYSQL_USER:-groquser}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-groqpass}
       JWT_SECRET: ${JWT_SECRET:-ThisIsASecretKeyForGroqChatAppMustBe32CharsMin!!}
+    volumes:
+      - vector_data:/app/data
     depends_on:
       mysql:
         condition: service_healthy
@@ -64,3 +66,4 @@ services:
 
 volumes:
   mysql_data:
+  vector_data:
