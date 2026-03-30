@@ -1,41 +1,40 @@
 package com.example.groqchat.service;
 
 import com.example.groqchat.config.RagConfig;
+import dev.langchain4j.data.document.Document;
+import dev.langchain4j.data.document.parser.apache.pdfbox.ApachePdfBoxDocumentParser;
+import dev.langchain4j.data.document.splitter.DocumentSplitters;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.embedding.inmemory.InMemoryEmbeddingStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.reader.pdf.PagePdfDocumentReader;
-import org.springframework.ai.transformer.splitter.TokenTextSplitter;
-import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PreDestroy;
 import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DocumentIngestionService {
 
-    private final SimpleVectorStore vectorStore;
+    private final EmbeddingStore<TextSegment> embeddingStore;
+    private final EmbeddingModel embeddingModel;
     private final RagConfig ragConfig;
 
     @EventListener(ApplicationReadyEvent.class)
     public void ingestDocuments() {
         try {
-            // Skip if vector store already exists on disk
-            File storeFile = new File(ragConfig.getVectorStorePath());
-            if (storeFile.exists()) {
-                log.info("Vector store already exists at {}, skipping ingestion", storeFile.getPath());
-                return;
-            }
-
             PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
             Resource[] resources = resolver.getResources(ragConfig.getDocsPath() + "*.pdf");
 
@@ -44,45 +43,78 @@ public class DocumentIngestionService {
                 return;
             }
 
-            List<Document> allDocuments = new ArrayList<>();
+            // Determine which PDFs are new
+            Set<String> alreadyIngested = loadIngestedFileList();
+            List<Resource> newPdfs = Arrays.stream(resources)
+                    .filter(r -> r.getFilename() != null && !alreadyIngested.contains(r.getFilename()))
+                    .toList();
 
-            for (Resource resource : resources) {
-                log.info("Loading PDF: {}", resource.getFilename());
-                PagePdfDocumentReader reader = new PagePdfDocumentReader(resource);
-                List<Document> documents = reader.get();
-                allDocuments.addAll(documents);
+            if (newPdfs.isEmpty()) {
+                log.info("All {} PDFs already ingested, nothing new to process", resources.length);
+                return;
             }
 
-            TokenTextSplitter splitter = new TokenTextSplitter(
-                    ragConfig.getChunkSize(),
-                    ragConfig.getChunkOverlap(),
-                    5,
-                    10000,
-                    true
-            );
-            List<Document> chunks = splitter.apply(allDocuments);
+            log.info("Found {} new PDF(s) to ingest (out of {} total)", newPdfs.size(), resources.length);
 
-            log.info("Adding {} chunks from {} PDFs to vector store", chunks.size(), resources.length);
-            vectorStore.add(chunks);
+            ApachePdfBoxDocumentParser parser = new ApachePdfBoxDocumentParser();
+            List<TextSegment> allSegments = new ArrayList<>();
 
-            // Persist to disk
+            for (Resource resource : newPdfs) {
+                log.info("Loading PDF: {}", resource.getFilename());
+                Document document = parser.parse(resource.getInputStream());
+                List<TextSegment> segments = DocumentSplitters
+                        .recursive(ragConfig.getChunkSize(), ragConfig.getChunkOverlap())
+                        .split(document);
+                allSegments.addAll(segments);
+            }
+
+            log.info("Adding {} chunks from {} new PDF(s) to embedding store", allSegments.size(), newPdfs.size());
+            embeddingStore.addAll(embeddingModel.embedAll(allSegments).content(), allSegments);
+
+            // Persist embedding store to disk
+            File storeFile = new File(ragConfig.getVectorStorePath());
             storeFile.getParentFile().mkdirs();
-            vectorStore.save(storeFile);
-            log.info("Vector store saved to {}", storeFile.getPath());
+            ((InMemoryEmbeddingStore<TextSegment>) embeddingStore).serializeToFile(storeFile.toPath());
+            log.info("Embedding store saved to {}", storeFile.getPath());
+
+            // Update ingested file list
+            Set<String> updatedList = new HashSet<>(alreadyIngested);
+            newPdfs.forEach(r -> updatedList.add(r.getFilename()));
+            saveIngestedFileList(updatedList);
 
         } catch (Exception e) {
             log.error("Failed to ingest documents", e);
         }
     }
 
-    @PreDestroy
-    public void saveStore() {
+    private Path getIngestedListPath() {
+        return Path.of(ragConfig.getVectorStorePath()).getParent().resolve("ingested-files.txt");
+    }
+
+    private Set<String> loadIngestedFileList() {
+        Path path = getIngestedListPath();
+        if (!Files.exists(path)) {
+            return new HashSet<>();
+        }
         try {
-            File storeFile = new File(ragConfig.getVectorStorePath());
-            storeFile.getParentFile().mkdirs();
-            vectorStore.save(storeFile);
-        } catch (Exception e) {
-            log.error("Failed to save vector store on shutdown", e);
+            return Files.readAllLines(path).stream()
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toCollection(HashSet::new));
+        } catch (IOException e) {
+            log.warn("Could not read ingested file list, will re-ingest all PDFs", e);
+            return new HashSet<>();
+        }
+    }
+
+    private void saveIngestedFileList(Set<String> fileNames) {
+        Path path = getIngestedListPath();
+        try {
+            Files.createDirectories(path.getParent());
+            Files.write(path, fileNames.stream().sorted().toList());
+            log.info("Ingested file list updated: {}", fileNames);
+        } catch (IOException e) {
+            log.error("Could not save ingested file list", e);
         }
     }
 }

@@ -1,10 +1,11 @@
 package com.example.groqchat.config;
 
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.reactive.function.client.WebClient;
 
 @Data
 @Configuration
@@ -18,11 +19,13 @@ public class GroqConfig {
     private int maxTokens;
 
     @Bean
-    public WebClient groqWebClient() {
-        return WebClient.builder()
+    public ChatLanguageModel chatLanguageModel() {
+        return OpenAiChatModel.builder()
                 .baseUrl(baseUrl)
-                .defaultHeader("Authorization", "Bearer " + apiKey)
-                .defaultHeader("Content-Type", "application/json")
+                .apiKey(apiKey)
+                .modelName(model)
+                .temperature(temperature)
+                .maxTokens(maxTokens)
                 .build();
     }
 }

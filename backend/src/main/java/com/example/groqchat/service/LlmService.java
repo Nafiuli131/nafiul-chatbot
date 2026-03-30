@@ -1,25 +1,22 @@
 package com.example.groqchat.service;
 
-import com.example.groqchat.config.GroqConfig;
-import com.example.groqchat.dto.ChatRequest;
-import com.example.groqchat.dto.ChatResponse;
 import com.example.groqchat.dto.Message;
 import com.example.groqchat.entity.ChatMessageEntity;
 import com.example.groqchat.entity.ChatSession;
 import com.example.groqchat.repository.ChatMessageRepository;
 import com.example.groqchat.repository.ChatSessionRepository;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
 
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -27,25 +24,23 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LlmService {
 
-    private final WebClient groqWebClient;
-    private final GroqConfig groqConfig;
+    private final ChatLanguageModel chatLanguageModel;
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
     private final RagService ragService;
 
     // ── Simple one-shot chat (no session) ─────────────────────
     public String chat(String userMessage, String systemPrompt) {
-        List<Message> messages = List.of(
-                new Message("system", systemPrompt != null ? systemPrompt : "You are a helpful assistant."),
-                new Message("user", userMessage)
+        List<ChatMessage> messages = List.of(
+                new SystemMessage(systemPrompt != null ? systemPrompt : "You are a helpful assistant."),
+                new UserMessage(userMessage)
         );
-        return callGroq(messages);
+        return callLlm(messages);
     }
 
     // ── Multi-user chat with memory (auto RAG-augmented) ────────
     @Transactional
     public String chatWithMemory(String sessionId, String userMessage, String systemPrompt, Long userId) {
-        // Enrich system prompt with RAG context if relevant documents exist
         String ragContext = ragService.retrieveContext(userMessage);
         String basePrompt = systemPrompt != null ? systemPrompt : "You are a helpful assistant.";
 
@@ -70,13 +65,12 @@ public class LlmService {
 
         messageRepository.save(new ChatMessageEntity(sessionId, "user", userMessage));
 
-        // Build history but replace the system prompt with the RAG-enriched one
-        List<Message> history = loadHistory(sessionId);
-        if (!history.isEmpty() && "system".equals(history.get(0).getRole())) {
-            history.set(0, new Message("system", enrichedPrompt));
+        List<ChatMessage> history = loadHistory(sessionId);
+        if (!history.isEmpty() && history.get(0) instanceof SystemMessage) {
+            history.set(0, new SystemMessage(enrichedPrompt));
         }
 
-        String response = callGroq(history);
+        String response = callLlm(history);
 
         messageRepository.save(new ChatMessageEntity(sessionId, "assistant", response));
 
@@ -140,41 +134,24 @@ public class LlmService {
     }
 
     // ── Helpers ────────────────────────────────────────────────
-    private List<Message> loadHistory(String sessionId) {
+    private List<ChatMessage> loadHistory(String sessionId) {
         return messageRepository.findBySessionIdOrderByCreatedAtAscIdAsc(sessionId)
                 .stream()
-                .map(e -> new Message(e.getRole(), e.getContent()))
-                .collect(Collectors.toList());
+                .map(e -> (ChatMessage) switch (e.getRole()) {
+                    case "system" -> new SystemMessage(e.getContent());
+                    case "assistant" -> new AiMessage(e.getContent());
+                    default -> new UserMessage(e.getContent());
+                })
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
-    private String callGroq(List<Message> messages) {
-        ChatRequest request = new ChatRequest(
-                groqConfig.getModel(),
-                messages,
-                groqConfig.getTemperature(),
-                groqConfig.getMaxTokens()
-        );
-
+    private String callLlm(List<ChatMessage> messages) {
         try {
-            ChatResponse response = groqWebClient
-                    .post()
-                    .uri("/chat/completions")
-                    .bodyValue(request)
-                    .retrieve()
-                    .bodyToMono(ChatResponse.class)
-                    .block();
-
-            if (response != null && !response.getChoices().isEmpty()) {
-                return response.getChoices().get(0).getMessage().getContent();
-            }
-            return "No response from Groq.";
-
-        } catch (WebClientResponseException e) {
-            log.error("Groq API error: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
-            return "Error: " + e.getStatusCode() + " — " + e.getResponseBodyAsString();
+            ChatResponse response = chatLanguageModel.chat(messages);
+            return response.aiMessage().text();
         } catch (Exception e) {
-            log.error("Unexpected error: {}", e.getMessage());
-            return "Unexpected error: " + e.getMessage();
+            log.error("LLM API error: {}", e.getMessage());
+            return "Error: " + e.getMessage();
         }
     }
 }

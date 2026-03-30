@@ -1,6 +1,6 @@
 # Nafiul Chatbot
 
-A full-stack AI chat application built with **Spring Boot** (backend) and **React** (frontend), powered by the **Groq free API** using LLaMA 3.3 70B. Fully Dockerized for easy deployment.
+A full-stack AI chat application built with **Spring Boot** (backend) and **React** (frontend), powered by **LangChain4j** and the **Groq free API** using LLaMA 3.3 70B. Fully Dockerized for easy deployment.
 
 ---
 
@@ -8,9 +8,9 @@ A full-stack AI chat application built with **Spring Boot** (backend) and **Reac
 
 - User registration and login with JWT authentication
 - Per-user chat sessions — your history is private and scoped to your account
-- **RAG (Retrieval-Augmented Generation)** — drop PDFs in `backend/src/main/resources/docs/` and the chatbot answers questions using your documents
-- Automatic PDF ingestion on startup with local ONNX embeddings (no extra API key needed)
-- Vector store persisted to disk — survives restarts without re-processing
+- **RAG (Retrieval-Augmented Generation)** powered by **LangChain4j** — drop PDFs in `backend/src/main/resources/docs/` and the chatbot answers questions using your documents
+- Automatic PDF ingestion on startup with local ONNX embeddings via LangChain4j (no extra API key needed)
+- In-memory embedding store persisted to disk — survives restarts without re-processing
 - Persistent chat history stored in **MySQL** — survives server restarts
 - Multiple independent chat sessions (like ChatGPT sidebar)
 - Starts a fresh new chat on every login; previous sessions visible in the sidebar
@@ -143,12 +143,10 @@ code/
 │       ├── java/com/example/groqchat/
 │       │   ├── GroqChatApplication.java         entry point
 │       │   ├── config/
-│       │   │   ├── GroqConfig.java              reads yml, builds WebClient
-│       │   │   └── RagConfig.java               RAG settings, SimpleVectorStore bean
+│       │   │   ├── GroqConfig.java              reads yml, builds LangChain4j ChatLanguageModel
+│       │   │   └── RagConfig.java               RAG settings, EmbeddingModel + EmbeddingStore beans
 │       │   ├── dto/
 │       │   │   ├── Message.java                 {role, content}
-│       │   │   ├── ChatRequest.java             sent to Groq API
-│       │   │   ├── ChatResponse.java            received from Groq API
 │       │   │   ├── UserMessage.java             received from frontend
 │       │   │   ├── RegisterRequest.java         register payload
 │       │   │   ├── LoginRequest.java            login payload
@@ -168,9 +166,9 @@ code/
 │       │   ├── service/
 │       │   │   ├── AuthService.java             register / login logic
 │       │   │   ├── UserDetailsServiceImpl.java
-│       │   │   ├── LlmService.java              session memory + RAG + Groq calls
-│       │   │   ├── RagService.java              vector similarity search
-│       │   │   └── DocumentIngestionService.java PDF loading + chunking on startup
+│       │   │   ├── LlmService.java              session memory + RAG + LangChain4j LLM calls
+│       │   │   ├── RagService.java              LangChain4j embedding search
+│       │   │   └── DocumentIngestionService.java LangChain4j PDF loading + chunking on startup
 │       │   └── controller/
 │       │       ├── AuthController.java          /api/auth/**
 │       │       └── ChatController.java          /api/chat/**
@@ -234,35 +232,35 @@ Browser
     ▼
 Spring Boot (port 8080)
     │  validates JWT → resolves user
-    │  searches vector store for relevant document chunks (RAG)
+    │  searches LangChain4j embedding store for relevant document chunks (RAG)
     │  enriches system prompt with document context (if found)
     │  loads conversation history from MySQL
-    │  appends new message, calls Groq API
+    │  appends new message, calls Groq API via LangChain4j ChatLanguageModel
     │  saves assistant reply back to MySQL
     ▼
 Groq API (free) → LLaMA 3.3 70B response → Browser ✓
 ```
 
-### RAG Pipeline
+### RAG Pipeline (LangChain4j)
 
 ```
 PDF files (backend/src/main/resources/docs/)
     │  [Startup: ApplicationReadyEvent]
     ▼
-PagePdfDocumentReader → TokenTextSplitter → ONNX EmbeddingModel (local)
-    │                                              │
-    ▼                                              ▼
-List<Document> (chunks)  →  SimpleVectorStore (in-memory + file-persisted)
-                                    │
-                                    ▼  [Query time]
-                            similaritySearch(query)
-                                    │
-                                    ▼
-                    Context injected into system prompt → Groq API → Response
+ApachePdfBoxDocumentParser → DocumentSplitters.recursive() → AllMiniLmL6V2EmbeddingModel (local ONNX)
+    │                                                                │
+    ▼                                                                ▼
+List<TextSegment> (chunks)  →  InMemoryEmbeddingStore (in-memory + file-persisted)
+                                       │
+                                       ▼  [Query time]
+                               EmbeddingSearchRequest(query)
+                                       │
+                                       ▼
+                       Context injected into system prompt → Groq API (via LangChain4j) → Response
 ```
 
 - **First startup**: Reads PDFs → chunks text → generates embeddings → saves to `./data/vector-store.json`
-- **Subsequent startups**: Loads vectors from file — skips PDF processing
+- **Subsequent startups**: Loads embedding store from file — skips PDF processing
 - **To re-ingest**: Delete `./data/vector-store.json` (or the `vector_data` Docker volume) and restart
 
 ### MySQL Schema
@@ -442,11 +440,11 @@ Or use `groquser` / `groqpass` (limited to `groqchat` database only).
 |---|---|
 | Language (backend) | Java 21 |
 | Framework | Spring Boot 3.4 |
-| AI framework | Spring AI 1.0 |
-| Embeddings | ONNX all-MiniLM-L6-v2 (local) |
-| Vector store | SimpleVectorStore (file-persisted) |
-| PDF parsing | Spring AI PDF Document Reader |
-| HTTP client | Spring WebFlux WebClient |
+| AI framework | LangChain4j 1.0.0-beta1 |
+| Embeddings | ONNX all-MiniLM-L6-v2 (local, via LangChain4j) |
+| Vector store | LangChain4j InMemoryEmbeddingStore (file-persisted) |
+| PDF parsing | LangChain4j Apache PDFBox Document Parser |
+| LLM client | LangChain4j OpenAI-compatible ChatLanguageModel |
 | ORM | Spring Data JPA + Hibernate |
 | Database | MySQL 8 |
 | Security | Spring Security + JWT (jjwt 0.12.6) |
