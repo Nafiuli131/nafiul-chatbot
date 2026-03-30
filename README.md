@@ -4,6 +4,24 @@ A full-stack AI chat application built with **Spring Boot** (backend) and **Reac
 
 ---
 
+## Branches
+
+This project has two versions with different AI frameworks:
+
+| Branch | AI Framework | Description |
+|--------|-------------|-------------|
+| [`main`](https://github.com/Nafiuli131/nafiul-chatbot/tree/main) | **LangChain4j** | Latest — uses LangChain4j for LLM calls, RAG, embeddings, and PDF ingestion |
+| [`spring-ai`](https://github.com/Nafiuli131/nafiul-chatbot/tree/spring-ai) | **Spring AI** | Previous — uses Spring AI with WebClient for Groq API calls |
+
+Both branches share the same frontend, auth system, and database schema. The difference is only in the AI/LLM integration layer.
+
+```bash
+git checkout main        # LangChain4j version
+git checkout spring-ai   # Spring AI version
+```
+
+---
+
 ## Features
 
 - User registration and login with JWT authentication
