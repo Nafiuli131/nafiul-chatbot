@@ -1,6 +1,6 @@
 # Nafiul Chatbot
 
-A full-stack AI chat application built with **Spring Boot** (backend) and **React** (frontend), powered by **LangChain4j** and the **Groq free API** using LLaMA 3.3 70B. Fully Dockerized for easy deployment.
+A full-stack **multi-agent AI chat application** built with **Spring Boot** (backend) and **React** (frontend), powered by **LangChain4j** and the **Groq free API** using LLaMA 3.3 70B. Features an intelligent agent router that automatically delegates queries to specialized agents (RAG, Weather, DateTime). Fully Dockerized for easy deployment.
 
 ---
 
@@ -24,6 +24,12 @@ git checkout spring-ai   # Spring AI version
 
 ## Features
 
+- **Multi-Agent Architecture** — intelligent router automatically delegates queries to the right specialized agent
+  - **RAG Agent** — searches uploaded PDF documents for knowledge-based questions
+  - **Weather Agent** — fetches real-time weather for any city/country via [wttr.in](https://wttr.in) (free, no API key)
+  - **DateTime Agent** — gets current date/time for 50+ countries and timezones
+  - **General Chat** — direct LLM response for greetings and casual conversation
+- Smart routing with keyword-based fast paths (weather/datetime) + LLM classifier fallback — saves tokens
 - User registration and login with JWT authentication
 - Per-user chat sessions — your history is private and scoped to your account
 - **RAG (Retrieval-Augmented Generation)** powered by **LangChain4j** — drop PDFs in `backend/src/main/resources/docs/` and the chatbot answers questions using your documents
@@ -160,6 +166,12 @@ code/
 │   └── src/main/
 │       ├── java/com/example/groqchat/
 │       │   ├── GroqChatApplication.java         entry point
+│       │   ├── agent/
+│       │   │   ├── AgentRouter.java             multi-agent router (classifies → routes → responds)
+│       │   │   └── tools/
+│       │   │       ├── RagTool.java             PDF document search agent
+│       │   │       ├── WeatherTool.java         real-time weather agent (wttr.in)
+│       │   │       └── DateTimeTool.java        date/time agent (50+ countries)
 │       │   ├── config/
 │       │   │   ├── GroqConfig.java              reads yml, builds LangChain4j ChatLanguageModel
 │       │   │   └── RagConfig.java               RAG settings, EmbeddingModel + EmbeddingStore beans
@@ -184,7 +196,7 @@ code/
 │       │   ├── service/
 │       │   │   ├── AuthService.java             register / login logic
 │       │   │   ├── UserDetailsServiceImpl.java
-│       │   │   ├── LlmService.java              session memory + RAG + LangChain4j LLM calls
+│       │   │   ├── LlmService.java              session memory + multi-agent routing
 │       │   │   ├── RagService.java              LangChain4j embedding search
 │       │   │   └── DocumentIngestionService.java LangChain4j PDF loading + chunking on startup
 │       │   └── controller/
@@ -242,6 +254,8 @@ Browser → :5173 (Vite Dev Server)
 
 ## How It Works
 
+### Multi-Agent Flow
+
 ```
 Browser
     │  POST /api/chat/memory
@@ -250,14 +264,35 @@ Browser
     ▼
 Spring Boot (port 8080)
     │  validates JWT → resolves user
-    │  searches LangChain4j embedding store for relevant document chunks (RAG)
-    │  enriches system prompt with document context (if found)
-    │  loads conversation history from MySQL
-    │  appends new message, calls Groq API via LangChain4j ChatLanguageModel
-    │  saves assistant reply back to MySQL
+    │  saves user message to MySQL
+    │  loads conversation history
     ▼
-Groq API (free) → LLaMA 3.3 70B response → Browser ✓
+AgentRouter (multi-agent orchestrator)
+    │
+    │  Step 1: CLASSIFY — determines which agent to use
+    │  ├── Keyword match (fast, no LLM call): "weather in..." → WEATHER
+    │  ├── Keyword match (fast, no LLM call): "what time..." → DATETIME
+    │  └── LLM classifier (fallback): asks Groq to classify → RAG / GENERAL
+    │
+    │  Step 2: EXECUTE — runs the matched agent's tool
+    │  ├── WEATHER  → WeatherTool  → wttr.in API → real-time weather data
+    │  ├── DATETIME → DateTimeTool → Java ZoneId → current date/time
+    │  ├── RAG      → RagTool      → EmbeddingStore → relevant PDF chunks
+    │  └── GENERAL  → (no tool, direct response)
+    │
+    │  Step 3: RESPOND — LLM generates final answer using tool result + chat history
+    ▼
+Groq API (free) → LLaMA 3.3 70B response → saved to MySQL → Browser ✓
 ```
+
+### Example Queries
+
+| User Message | Agent | What Happens |
+|---|---|---|
+| "What's the weather in Tokyo?" | Weather | Keyword match → wttr.in API → formatted response |
+| "What time is it in Bangladesh?" | DateTime | Keyword match → Java ZoneId (Asia/Dhaka) → formatted response |
+| "Who is Nafiul Islam?" | RAG | LLM classifier → PDF vector search → response with document context |
+| "Hello!" | General | LLM classifier → direct LLM response (no tool) |
 
 ### RAG Pipeline (LangChain4j)
 
@@ -438,7 +473,7 @@ Or use `groquser` / `groqpass` (limited to `groqchat` database only).
 |---|---|
 | `401 Unauthorized` on chat | JWT token missing or expired. Log out and log in again. |
 | `401 Unauthorized` on Groq | `GROQ_API_KEY` is wrong or not set. Check `.env` file. |
-| `429 Too Many Requests` | Hit Groq free tier rate limit. Wait ~1 minute. |
+| `429 Too Many Requests` | Hit Groq free tier rate limit. Per-minute limit resets in ~60s. Daily limit (100K tokens) resets after 24 hours. Consider upgrading to Groq Dev Tier for higher limits. |
 | `Connection refused` on port 8080 | Backend is not running. Check `docker compose logs backend`. |
 | `Access denied for user` (MySQL) | Wrong credentials. Check `.env` matches `docker-compose.yml`. |
 | Container keeps restarting | Check logs: `docker compose logs <service-name>`. |
@@ -459,6 +494,8 @@ Or use `groquser` / `groqpass` (limited to `groqchat` database only).
 | Language (backend) | Java 21 |
 | Framework | Spring Boot 3.4 |
 | AI framework | LangChain4j 1.0.0-beta1 |
+| Agent architecture | Multi-agent router (RAG, Weather, DateTime, General) |
+| Weather API | wttr.in (free, no API key) |
 | Embeddings | ONNX all-MiniLM-L6-v2 (local, via LangChain4j) |
 | Vector store | LangChain4j InMemoryEmbeddingStore (file-persisted) |
 | PDF parsing | LangChain4j Apache PDFBox Document Parser |

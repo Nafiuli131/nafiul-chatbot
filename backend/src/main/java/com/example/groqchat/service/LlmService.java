@@ -1,5 +1,6 @@
 package com.example.groqchat.service;
 
+import com.example.groqchat.agent.AgentRouter;
 import com.example.groqchat.dto.Message;
 import com.example.groqchat.entity.ChatMessageEntity;
 import com.example.groqchat.entity.ChatSession;
@@ -27,7 +28,7 @@ public class LlmService {
     private final ChatLanguageModel chatLanguageModel;
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
-    private final RagService ragService;
+    private final AgentRouter agentRouter;
 
     // ── Simple one-shot chat (no session) ─────────────────────
     public String chat(String userMessage, String systemPrompt) {
@@ -38,24 +39,10 @@ public class LlmService {
         return callLlm(messages);
     }
 
-    // ── Multi-user chat with memory (auto RAG-augmented) ────────
+    // ── Multi-agent chat with memory ────────────────────────────
     @Transactional
     public String chatWithMemory(String sessionId, String userMessage, String systemPrompt, Long userId) {
-        String ragContext = ragService.retrieveContext(userMessage);
         String basePrompt = systemPrompt != null ? systemPrompt : "You are a helpful assistant.";
-
-        String enrichedPrompt;
-        if (ragContext.isEmpty()) {
-            enrichedPrompt = basePrompt;
-        } else {
-            enrichedPrompt = basePrompt + """
-
-                    Use the following document context to help answer the user's question.
-                    If the context does not contain the answer, say so and answer to the best of your ability.
-
-                    Context:
-                    """ + ragContext;
-        }
 
         if (!sessionRepository.existsById(sessionId)) {
             sessionRepository.save(new ChatSession(sessionId, basePrompt, userId));
@@ -65,16 +52,21 @@ public class LlmService {
 
         messageRepository.save(new ChatMessageEntity(sessionId, "user", userMessage));
 
+        // Load conversation history for context
         List<ChatMessage> history = loadHistory(sessionId);
-        if (!history.isEmpty() && history.get(0) instanceof SystemMessage) {
-            history.set(0, new SystemMessage(enrichedPrompt));
-        }
 
-        String response = callLlm(history);
+        // Route through multi-agent system
+        String response;
+        try {
+            response = agentRouter.route(userMessage, history);
+        } catch (Exception e) {
+            log.error("Agent router error: {}", e.getMessage(), e);
+            response = "Sorry, I encountered an error. Please try again.";
+        }
 
         messageRepository.save(new ChatMessageEntity(sessionId, "assistant", response));
 
-        log.info("Session [{}] — {} messages, RAG context: {}", sessionId, history.size() + 1, !ragContext.isEmpty());
+        log.info("Session [{}] — agent response generated", sessionId);
         return response;
     }
 
