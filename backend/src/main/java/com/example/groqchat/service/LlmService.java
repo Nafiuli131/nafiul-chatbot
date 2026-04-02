@@ -1,6 +1,7 @@
 package com.example.groqchat.service;
 
 import com.example.groqchat.agent.AgentRouter;
+import com.example.groqchat.dto.AgentResponse;
 import com.example.groqchat.dto.Message;
 import com.example.groqchat.entity.ChatMessageEntity;
 import com.example.groqchat.entity.ChatSession;
@@ -41,7 +42,7 @@ public class LlmService {
 
     // ── Multi-agent chat with memory ────────────────────────────
     @Transactional
-    public String chatWithMemory(String sessionId, String userMessage, String systemPrompt, Long userId) {
+    public AgentResponse chatWithMemory(String sessionId, String userMessage, String systemPrompt, Long userId) {
         String basePrompt = systemPrompt != null ? systemPrompt : "You are a helpful assistant.";
 
         if (!sessionRepository.existsById(sessionId)) {
@@ -55,19 +56,19 @@ public class LlmService {
         // Load conversation history for context
         List<ChatMessage> history = loadHistory(sessionId);
 
-        // Route through multi-agent system
-        String response;
+        // Route through multi-agent system (returns response + guardrail metadata)
+        AgentResponse agentResponse;
         try {
-            response = agentRouter.route(userMessage, history);
+            agentResponse = agentRouter.route(userMessage, history);
         } catch (Exception e) {
             log.error("Agent router error: {}", e.getMessage(), e);
-            response = "Sorry, I encountered an error. Please try again.";
+            agentResponse = new AgentResponse("Sorry, I encountered an error. Please try again.", false, List.of());
         }
 
-        messageRepository.save(new ChatMessageEntity(sessionId, "assistant", response));
+        messageRepository.save(new ChatMessageEntity(sessionId, "assistant", agentResponse.getResponse()));
 
         log.info("Session [{}] — agent response generated", sessionId);
-        return response;
+        return agentResponse;
     }
 
     // ── Session management ─────────────────────────────────────

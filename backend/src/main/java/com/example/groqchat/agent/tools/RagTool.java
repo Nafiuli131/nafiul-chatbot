@@ -14,12 +14,11 @@ public class RagTool {
         this.ragService = ragService;
     }
 
-    public String queryDocuments(String query) {
+    /**
+     * Queries documents and returns a RagResult with context + scores.
+     */
+    public RagService.RagResult queryDocuments(String query) {
         log.info("RAG Tool invoked with query: {}", query);
-        String context = ragService.retrieveContext(query);
-        if (context.isEmpty()) {
-            return "No relevant documents found for this query.";
-        }
-        return context;
+        return ragService.retrieveContext(query);
     }
 }

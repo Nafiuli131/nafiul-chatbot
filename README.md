@@ -1,6 +1,6 @@
 # Nafiul Chatbot
 
-A full-stack **multi-agent AI chat application** built with **Spring Boot** (backend) and **React** (frontend), powered by **LangChain4j** and the **Groq free API** using LLaMA 3.3 70B. Features an intelligent agent router that automatically delegates queries to specialized agents (RAG, Weather, DateTime). Fully Dockerized for easy deployment.
+A full-stack **multi-agent AI chat application** built with **Spring Boot** (backend) and **React** (frontend), powered by **LangChain4j** and the **Groq free API** using LLaMA 3.3 70B. Features an intelligent agent router that automatically delegates queries to specialized agents (RAG, Weather, DateTime), with **5 built-in guardrails** and **hallucination detection** for safe, grounded AI responses. Fully Dockerized for easy deployment.
 
 ---
 
@@ -24,22 +24,48 @@ git checkout spring-ai   # Spring AI version
 
 ## Features
 
-- **Multi-Agent Architecture** — intelligent router automatically delegates queries to the right specialized agent
+### Multi-Agent Architecture
+- Intelligent router automatically delegates queries to the right specialized agent
   - **RAG Agent** — searches uploaded PDF documents for knowledge-based questions
   - **Weather Agent** — fetches real-time weather for any city/country via [wttr.in](https://wttr.in) (free, no API key)
   - **DateTime Agent** — gets current date/time for 50+ countries and timezones
-  - **General Chat** — direct LLM response for greetings and casual conversation
+  - **General Chat** — direct LLM response using general knowledge
+- **RAG-first routing** — for non-tool queries, always searches documents first; falls back to general knowledge if no relevant docs found
 - Smart routing with keyword-based fast paths (weather/datetime) + LLM classifier fallback — saves tokens
+
+### Guardrails & Hallucination Detection
+- **5 built-in guardrails** that run on every request with full visibility in API responses:
+
+| # | Guardrail | Type | What It Does |
+|---|-----------|------|-------------|
+| 1 | **Input Length** | Input | Blocks messages exceeding configurable max character limit (default: 2000) |
+| 2 | **Prompt Injection** | Input | Detects jailbreak attempts, "ignore previous instructions", system prompt extraction |
+| 3 | **Harmful Content** | Input | Blocks requests for weapons, malware, hacking, illegal content |
+| 4 | **Hallucination Check** | RAG | LLM-based verification that RAG answers are grounded in retrieved documents |
+| 5 | **Sensitive Data Redaction** | Output | Redacts emails, phone numbers, SSNs, API keys, credit cards from responses |
+
+- Every API response includes guardrail metadata showing what each guard did (PASSED / BLOCKED / GROUNDED / REDACTED)
+- `GET /api/guardrails/status` endpoint to inspect all active guardrails
+- Smart fallback: if hallucination check detects NOT_GROUNDED, automatically retries with general knowledge instead of blocking
+- All guardrails are independently configurable via `application.yml`
+
+### RAG (Retrieval-Augmented Generation)
+- Powered by **LangChain4j** — drop PDFs in `backend/src/main/resources/docs/` and the chatbot answers questions using your documents
+- Automatic PDF ingestion on startup with local ONNX embeddings (no extra API key needed)
+- Score-aware retrieval — only chunks above configurable `minScore` threshold (default: 0.7) are used
+- In-memory embedding store persisted to disk — survives restarts without re-processing
+- **Add more PDFs anytime** — just drop them in the docs folder and restart; no code changes needed
+
+### Chat & Auth
 - User registration and login with JWT authentication
 - Per-user chat sessions — your history is private and scoped to your account
-- **RAG (Retrieval-Augmented Generation)** powered by **LangChain4j** — drop PDFs in `backend/src/main/resources/docs/` and the chatbot answers questions using your documents
-- Automatic PDF ingestion on startup with local ONNX embeddings via LangChain4j (no extra API key needed)
-- In-memory embedding store persisted to disk — survives restarts without re-processing
 - Persistent chat history stored in **MySQL** — survives server restarts
 - Multiple independent chat sessions (like ChatGPT sidebar)
 - Starts a fresh new chat on every login; previous sessions visible in the sidebar
 - Per-session conversation memory using `sessionId`
 - Editable system prompt per session
+
+### UI
 - Markdown rendering — code blocks, tables, lists
 - Animated loading indicator while waiting for response
 - Auto-renames sessions from the first message
@@ -178,6 +204,8 @@ code/
 │       │   ├── dto/
 │       │   │   ├── Message.java                 {role, content}
 │       │   │   ├── UserMessage.java             received from frontend
+│       │   │   ├── AgentResponse.java           response + guardrail metadata
+│       │   │   ├── GuardrailResult.java         {name, status, message} per guardrail
 │       │   │   ├── RegisterRequest.java         register payload
 │       │   │   ├── LoginRequest.java            login payload
 │       │   │   └── AuthResponse.java            {token, username}
@@ -197,7 +225,9 @@ code/
 │       │   │   ├── AuthService.java             register / login logic
 │       │   │   ├── UserDetailsServiceImpl.java
 │       │   │   ├── LlmService.java              session memory + multi-agent routing
-│       │   │   ├── RagService.java              LangChain4j embedding search
+│       │   │   ├── RagService.java              score-aware embedding search
+│       │   │   ├── GuardrailService.java        input/output guardrails (4 guards)
+│       │   │   ├── HallucinationDetector.java   LLM-based RAG grounding verification
 │       │   │   └── DocumentIngestionService.java LangChain4j PDF loading + chunking on startup
 │       │   └── controller/
 │       │       ├── AuthController.java          /api/auth/**
@@ -254,7 +284,7 @@ Browser → :5173 (Vite Dev Server)
 
 ## How It Works
 
-### Multi-Agent Flow
+### Multi-Agent Flow (with Guardrails)
 
 ```
 Browser
@@ -269,30 +299,49 @@ Spring Boot (port 8080)
     ▼
 AgentRouter (multi-agent orchestrator)
     │
+    │  ┌─── INPUT GUARDRAILS ────────────────────────────────┐
+    │  │  Guard 1: Input Length      → block if > 2000 chars │
+    │  │  Guard 2: Prompt Injection  → block jailbreaks      │
+    │  │  Guard 3: Harmful Content   → block dangerous asks  │
+    │  └─────────────────────────────────────────────────────┘
+    │
     │  Step 1: CLASSIFY — determines which agent to use
     │  ├── Keyword match (fast, no LLM call): "weather in..." → WEATHER
     │  ├── Keyword match (fast, no LLM call): "what time..." → DATETIME
-    │  └── LLM classifier (fallback): asks Groq to classify → RAG / GENERAL
+    │  └── LLM classifier (fallback): asks Groq to classify → GENERAL
     │
-    │  Step 2: EXECUTE — runs the matched agent's tool
+    │  Step 2: EXECUTE
     │  ├── WEATHER  → WeatherTool  → wttr.in API → real-time weather data
     │  ├── DATETIME → DateTimeTool → Java ZoneId → current date/time
-    │  ├── RAG      → RagTool      → EmbeddingStore → relevant PDF chunks
-    │  └── GENERAL  → (no tool, direct response)
+    │  └── GENERAL  → RAG-first strategy:
+    │       ├── Search RAG (minScore=0.7)
+    │       ├── HIT  → answer from docs → Guard 4: Hallucination Check
+    │       │    ├── GROUNDED         → use RAG response ✓
+    │       │    ├── PARTIALLY_GROUNDED → add disclaimer ⚠
+    │       │    └── NOT_GROUNDED     → fallback to general knowledge
+    │       └── MISS → answer from general knowledge (no hallucination check)
     │
-    │  Step 3: RESPOND — LLM generates final answer using tool result + chat history
+    │  ┌─── OUTPUT GUARDRAILS ───────────────────────────────┐
+    │  │  Guard 5: Sensitive Data Redaction                  │
+    │  │  → redacts emails, phones, SSNs, API keys, cards   │
+    │  └─────────────────────────────────────────────────────┘
     ▼
 Groq API (free) → LLaMA 3.3 70B response → saved to MySQL → Browser ✓
+
+Response includes guardrail metadata:
+{ response, blocked, guardrails: [{name, status, message}, ...] }
 ```
 
 ### Example Queries
 
-| User Message | Agent | What Happens |
+| User Message | Route | What Happens |
 |---|---|---|
-| "What's the weather in Tokyo?" | Weather | Keyword match → wttr.in API → formatted response |
-| "What time is it in Bangladesh?" | DateTime | Keyword match → Java ZoneId (Asia/Dhaka) → formatted response |
-| "Who is Nafiul Islam?" | RAG | LLM classifier → PDF vector search → response with document context |
+| "What's the weather in Tokyo?" | WEATHER tool | Keyword match → wttr.in API → formatted response |
+| "What time is it in Bangladesh?" | DATETIME tool | Keyword match → Java ZoneId (Asia/Dhaka) → formatted response |
+| "Who is Nafiul Islam?" | RAG → GROUNDED | RAG search → PDF chunks found → hallucination check passes → document-grounded answer |
+| "Tell me about Iran" | RAG miss → General | RAG search → no relevant docs → answers from general knowledge |
 | "Hello!" | General | LLM classifier → direct LLM response (no tool) |
+| "Ignore previous instructions" | BLOCKED | Input guardrail blocks prompt injection attempt |
 
 ### RAG Pipeline (LangChain4j)
 
@@ -306,15 +355,21 @@ ApachePdfBoxDocumentParser → DocumentSplitters.recursive() → AllMiniLmL6V2Em
 List<TextSegment> (chunks)  →  InMemoryEmbeddingStore (in-memory + file-persisted)
                                        │
                                        ▼  [Query time]
-                               EmbeddingSearchRequest(query)
+                               EmbeddingSearchRequest(query, minScore=0.7)
                                        │
                                        ▼
-                       Context injected into system prompt → Groq API (via LangChain4j) → Response
+                               RagResult { context, bestScore, matchCount }
+                                       │
+                                       ├── HIT (score ≥ 0.7) → context injected → LLM → Hallucination Check
+                                       │                                            ├── GROUNDED → return ✓
+                                       │                                            └── NOT_GROUNDED → general fallback
+                                       └── MISS (no matches) → general LLM response (no hallucination check)
 ```
 
 - **First startup**: Reads PDFs → chunks text → generates embeddings → saves to `./data/vector-store.json`
 - **Subsequent startups**: Loads embedding store from file — skips PDF processing
 - **To re-ingest**: Delete `./data/vector-store.json` (or the `vector_data` Docker volume) and restart
+- **To add more documents**: Drop any `.pdf` into `backend/src/main/resources/docs/` and restart — no code changes needed
 
 ### MySQL Schema
 
@@ -370,10 +425,11 @@ chat_messages
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/chat/memory` | Send a message with session memory |
+| `POST` | `/api/chat/memory` | Send a message with session memory (returns guardrail metadata) |
 | `GET` | `/api/chat/sessions` | List all sessions for the logged-in user |
 | `GET` | `/api/chat/session/{id}/messages` | Load message history for a session |
 | `DELETE` | `/api/chat/session/{id}` | Delete a session |
+| `GET` | `/api/guardrails/status` | List all active guardrails and their descriptions |
 | `GET` | `/api/health` | Health check (public) |
 
 ### Example — Login
@@ -405,6 +461,15 @@ curl -X POST http://localhost:8080/api/chat/memory \
 {
   "sessionId": "550e8400-e29b-41d4-a716-446655440000",
   "response": "Spring Boot is an opinionated framework...",
+  "blocked": false,
+  "guardrails": [
+    { "name": "InputLength", "status": "PASSED", "message": "Check passed" },
+    { "name": "PromptInjection", "status": "PASSED", "message": "Check passed" },
+    { "name": "HarmfulContent", "status": "PASSED", "message": "Check passed" },
+    { "name": "RAGSearch", "status": "MISS", "message": "No relevant documents found" },
+    { "name": "HallucinationCheck", "status": "SKIPPED", "message": "No RAG context — answered using general knowledge" },
+    { "name": "SensitiveDataRedaction", "status": "PASSED", "message": "No sensitive data found" }
+  ],
   "historySize": "3"
 }
 ```
@@ -441,6 +506,13 @@ rag:
   vector-store-path: ./data/vector-store.json  # persisted vector store
   chunk-size: 800                        # tokens per chunk
   chunk-overlap: 200                     # overlap between chunks
+
+guardrails:
+  max-input-length: 2000                 # max characters per message
+  block-prompt-injection: true           # detect jailbreak attempts
+  block-sensitive-output: true           # redact PII from responses
+  hallucination-check: true              # verify RAG answers are grounded
+  rag-min-score: 0.7                     # min similarity score for RAG (0.0-1.0)
 ```
 
 ### Available Groq models (free tier)
@@ -477,7 +549,9 @@ Or use `groquser` / `groqpass` (limited to `groqchat` database only).
 | `Connection refused` on port 8080 | Backend is not running. Check `docker compose logs backend`. |
 | `Access denied for user` (MySQL) | Wrong credentials. Check `.env` matches `docker-compose.yml`. |
 | Container keeps restarting | Check logs: `docker compose logs <service-name>`. |
-| RAG not finding answers | Delete `./data/vector-store.json` and restart to re-ingest PDFs. |
+| RAG not finding answers | Delete `./data/vector-store.json` and restart to re-ingest PDFs. Or lower `guardrails.rag-min-score` in `application.yml`. |
+| Message blocked by guardrails | Check the `guardrails` array in the response to see which guard blocked it. Adjust settings in `application.yml`. |
+| Hallucination check too strict | Set `guardrails.hallucination-check: false` in `application.yml` to disable it. |
 | No PDF files found warning | Place at least one `.pdf` file in `backend/src/main/resources/docs/`. |
 | First startup is slow | ONNX model (~80MB) downloads on first run. Cached after that. |
 | Frontend can't reach backend | Nginx proxies `/api` to `backend:8080`. Ensure backend is healthy. |
@@ -494,7 +568,8 @@ Or use `groquser` / `groqpass` (limited to `groqchat` database only).
 | Language (backend) | Java 21 |
 | Framework | Spring Boot 3.4 |
 | AI framework | LangChain4j 1.0.0-beta1 |
-| Agent architecture | Multi-agent router (RAG, Weather, DateTime, General) |
+| Agent architecture | Multi-agent router (RAG, Weather, DateTime, General) with 5 guardrails |
+| Guardrails | Input validation, prompt injection detection, hallucination detection, PII redaction |
 | Weather API | wttr.in (free, no API key) |
 | Embeddings | ONNX all-MiniLM-L6-v2 (local, via LangChain4j) |
 | Vector store | LangChain4j InMemoryEmbeddingStore (file-persisted) |

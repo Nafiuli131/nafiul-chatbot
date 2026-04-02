@@ -32,3 +32,11 @@ rag:
   vector-store-path: ./data/vector-store.json
   chunk-size: 800
   chunk-overlap: 200
+
+# Guardrails & Hallucination Detection
+guardrails:
+  max-input-length: 2000
+  block-prompt-injection: true
+  block-sensitive-output: true
+  hallucination-check: true
+  rag-min-score: 0.7
